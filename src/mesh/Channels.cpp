@@ -15,6 +15,7 @@ Channels channels;
 const char *Channels::adminChannel = "admin";
 const char *Channels::gpioChannel = "gpio";
 const char *Channels::serialChannel = "serial";
+const char *Channels::mqttChannel = "mqtt";
 
 uint8_t xorHash(const uint8_t *p, size_t len)
 {
@@ -184,7 +185,7 @@ void Channels::onConfigChanged()
 {
     // Make sure the phone hasn't mucked anything up
     for (int i = 0; i < channelFile.channels_count; i++) {
-        meshtastic_Channel &ch = fixupChannel(i);
+        const meshtastic_Channel &ch = fixupChannel(i);
 
         if (ch.role == meshtastic_Channel_Role_PRIMARY)
             primaryIndex = i;
