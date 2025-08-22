@@ -1,0 +1,176 @@
+name: Auto-build Heltec T114 after merge
+
+on:
+  push:
+    branches:
+      - JF-Pieper-Modifications  # Trigger on every push/merge to your branch
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  build-t114:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup base environment
+        uses: ./.github/actions/setup-base
+        
+      - name: Build Heltec T114 with JF-Pieper modifications
+        id: build
+        uses: ./.github/actions/build-variant
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          board: heltec-mesh-node-t114
+          build-script-path: bin/build-nrf52.sh
+          artifact-paths: |
+            release/*.hex
+            release/*.uf2
+            release/*.elf
+            release/*.zip
+          arch: nrf52840
+          
+      - name: Verify JF-Pieper modifications are included
+        run: |
+          echo "🔍 Verifying JF-Pieper modifications in build..."
+          if grep -q "HELTEC_MESH_NODE_T114" src/graphics/Screen.cpp; then
+            echo "✅ HELTEC_MESH_NODE_T114 conditional compilation found"
+          else
+            echo "❌ HELTEC_MESH_NODE_T114 modifications missing!"
+            exit 1
+          fi
+          
+          if grep -q "Only show the debug info settings screen" src/graphics/Screen.cpp; then
+            echo "✅ Simplified screen display modifications found"
+          else
+            echo "❌ Screen simplification modifications missing!"
+            exit 1
+          fi
+          
+          echo "✅ All JF-Pieper modifications verified in source code"
+          
+      - name: Upload T114 firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: heltec-t114-firmware-${{ github.sha }}
+          path: |
+            release/firmware-heltec-mesh-node-t114-*.hex
+            release/firmware-heltec-mesh-node-t114-*.uf2
+            release/firmware-heltec-mesh-node-t114-*.zip
+          retention-days: 30
+          
+      - name: Create build summary
+        run: |
+          echo "## 🚀 Heltec T114 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Built firmware for Heltec T114 with JF-Pieper modifications" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Features:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Simplified display (messages + settings only)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ 'No GPS present' message in debug info" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Removed unnecessary pages (clock, nodes, WiFi, debug log)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Info:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** JF-Pieper-Modifications" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Architecture:** nRF52840" >> $GITHUB_STEP_SUMMARY
+          echo "- **Board:** heltec-mesh-node-t114" >> $GITHUB_STEP_SUMMARY
+          
+      - name: Comment on commit (if available)
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+            
+            const body = `🔧 **Auto-built Heltec T114 firmware**
+            
+            ✅ Successfully built firmware with JF-Pieper modifications
+            📦 Artifacts: \`heltec-t114-firmware-${sha}\`
+            
+            **Features included:**
+            - Simplified display (messages + settings only)  
+            - "No GPS present" message in debug info
+            - Removed unnecessary pages for T114 device
+            
+            **Ready for deployment!** 🚀`;
+            
+            try {
+              await github.rest.repos.createCommitComment({
+                owner,
+                repo,
+                commit_sha: sha,
+                body
+              });
+            } catch (error) {
+              console.log('Could not create commit comment:', error.message);
+            }
+
+  notify-build-failure:
+    runs-on: ubuntu-latest
+    needs: build-t114
+    if: failure()
+    
+    steps:
+    - name: Create issue on build failure
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const title = '🚨 Heltec T114 build failed on JF-Pieper-Modifications';
+          const body = `
+          The automatic Heltec T114 build failed after a merge to JF-Pieper-Modifications.
+          
+          **Failure Details:**
+          - Branch: JF-Pieper-Modifications
+          - Commit: ${context.sha}
+          - Run ID: ${context.runId}
+          - Workflow: Auto-build Heltec T114
+          
+          **Possible causes:**
+          - Build environment issues
+          - Missing dependencies
+          - Source code compilation errors
+          - JF-Pieper modifications may have been corrupted
+          
+          **Manual verification needed:**
+          1. Check that HELTEC_MESH_NODE_T114 conditional compilation is present
+          2. Verify Screen.cpp modifications are intact
+          3. Review build logs for specific errors
+          4. Test local build: \`pio run --environment heltec-mesh-node-t114\`
+          
+          **Auto-build will retry on next merge.**
+          `;
+          
+          // Check if issue already exists
+          const existingIssues = await github.rest.issues.listForRepo({
+            owner,
+            repo,
+            state: 'open',
+            labels: 't114-build-failure'
+          });
+          
+          const existingIssue = existingIssues.data.find(issue => 
+            issue.title.includes('Heltec T114 build failed')
+          );
+          
+          if (existingIssue) {
+            // Update existing issue
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existingIssue.number,
+              body: `Another T114 build failure occurred.\n\n${body}`
+            });
+          } else {
+            // Create new issue
+            await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              body,
+              labels: ['t114-build-failure', 'needs-attention', 'JF-Pieper-Modifications']
+            });
+          }
