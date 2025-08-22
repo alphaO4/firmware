@@ -260,6 +260,8 @@ jobs:
           EOF
           
       - name: Fix release body (pin to exact commit in your fork)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Fix the commit link to point to your fork instead of meshtastic
           sed -i "s|https://github.com/meshtastic/firmware/commit/${{ github.sha }}|https://github.com/alphaO4/firmware/commit/${{ github.sha }}|g" release_body.md
