@@ -2080,7 +2080,6 @@ void Screen::setFrames(FrameFocus focus)
     fsi.positions.settings = numframes;
     normalFrames[numframes++] = &Screen::drawDebugInfoSettingsTrampoline;
 
-    // test
 #else
     // For all other devices: show all frames as before
     
