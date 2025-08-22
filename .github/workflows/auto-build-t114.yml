@@ -263,6 +263,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          TAG_NAME="${{ steps.generate_tag.outputs.tag_name }}"
+          RELEASE_NAME="${{ steps.generate_tag.outputs.release_name }}"
+          
           # Fix the commit link to point to your fork instead of meshtastic
           sed -i "s|https://github.com/meshtastic/firmware/commit/${{ github.sha }}|https://github.com/alphaO4/firmware/commit/${{ github.sha }}|g" release_body.md
           # Make the source link prominent at the top:
@@ -516,3 +519,182 @@ jobs:
               labels: ['t114-build-failure', 'needs-attention', 'JF-Pieper-Modifications']
             });
           }
+
+  auto-fix-with-copilot:
+    runs-on: ubuntu-latest
+    needs: build-t114
+    if: failure()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Analyze build failure and request Copilot fix
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          
+          // Get the failed workflow run details
+          const runId = context.runId;
+          const workflowRun = await github.rest.actions.getWorkflowRun({
+            owner,
+            repo,
+            run_id: runId
+          });
+          
+          // Get the job logs to understand the failure
+          const jobs = await github.rest.actions.listJobsForWorkflowRun({
+            owner,
+            repo,
+            run_id: runId
+          });
+          
+          const failedJob = jobs.data.jobs.find(job => job.conclusion === 'failure');
+          
+          if (!failedJob) {
+            console.log('No failed job found');
+            return;
+          }
+          
+          // Create a detailed problem statement for Copilot
+          const problemStatement = `
+          **Automatic Build Failure Fix Request**
+          
+          The Heltec T114 auto-build workflow failed on the JF-Pieper-Modifications branch.
+          
+          **Failure Details:**
+          - Branch: JF-Pieper-Modifications
+          - Commit: ${context.sha}
+          - Failed Job: ${failedJob.name}
+          - Workflow Run: ${context.runId}
+          - Job URL: ${failedJob.html_url}
+          
+          **Task for Copilot:**
+          Please analyze the build failure and implement a fix. Common issues include:
+          
+          1. **Build Environment Issues:**
+             - Missing dependencies in platformio.ini
+             - Incorrect PlatformIO environment configuration
+             - Missing board variant files
+          
+          2. **Source Code Compilation Errors:**
+             - Syntax errors in C++ code
+             - Missing include files
+             - Undefined references or symbols
+             - Conditional compilation issues (#ifdef HELTEC_MESH_NODE_T114)
+          
+          3. **JF-Pieper Modifications Issues:**
+             - Verify HELTEC_MESH_NODE_T114 conditional compilation in src/graphics/Screen.cpp
+             - Ensure "Only show the debug info settings screen" modifications are intact
+             - Check for conflicts with upstream Meshtastic changes
+          
+          4. **GitHub Actions Workflow Issues:**
+             - Token permissions for release creation
+             - Asset upload failures
+             - Environment variable configuration
+          
+          **Expected Fix:**
+          - Identify the root cause of the build failure
+          - Implement the minimal necessary changes to fix the issue
+          - Preserve all JF-Pieper modifications (simplified display, conditional compilation)
+          - Ensure the fix maintains GPL-3.0 compliance
+          - Test that the fix allows successful compilation for heltec-mesh-node-t114
+          
+          **Files to examine:**
+          - .github/workflows/auto-build-t114.yml (this workflow)
+          - src/graphics/Screen.cpp (JF-Pieper modifications)
+          - platformio.ini (build configuration)
+          - variants/heltec_mesh_node_t114/ (board variant files)
+          - Any other files mentioned in the error logs
+          
+          Please create a pull request with the fix targeting the JF-Pieper-Modifications branch.
+          `;
+          
+          // Check if Copilot is already assigned to an existing issue
+          const existingIssues = await github.rest.issues.listForRepo({
+            owner,
+            repo,
+            state: 'open',
+            labels: 'copilot-fix-request',
+            assignee: 'github-copilot[bot]'
+          });
+          
+          const existingCopilotIssue = existingIssues.data.find(issue => 
+            issue.title.includes('Auto-fix T114 build failure')
+          );
+          
+          if (existingCopilotIssue) {
+            console.log('Copilot is already working on a fix. Adding update to existing issue.');
+            
+            // Add a comment to the existing issue
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existingCopilotIssue.number,
+              body: `**New Build Failure Detected**\n\nAnother build failure occurred. Please also address this failure:\n\n${problemStatement}`
+            });
+            
+          } else {
+            console.log('Creating new issue and assigning to GitHub Copilot for automatic fix.');
+            
+            // Create a new issue and assign to GitHub Copilot coding agent
+            const issue = await github.rest.issues.create({
+              owner,
+              repo,
+              title: `🤖 Auto-fix T114 build failure - ${new Date().toISOString().split('T')[0]}`,
+              body: problemStatement,
+              labels: [
+                'copilot-fix-request', 
+                't114-build-failure', 
+                'JF-Pieper-Modifications',
+                'automated-fix'
+              ]
+            });
+            
+            console.log(`Created issue #${issue.data.number} for Copilot to fix`);
+            
+            // Assign GitHub Copilot to the issue to trigger automatic fix
+            try {
+              await github.rest.issues.addAssignees({
+                owner,
+                repo,
+                issue_number: issue.data.number,
+                assignees: ['github-copilot[bot]']
+              });
+              console.log('✅ Assigned GitHub Copilot to automatically fix the build failure');
+            } catch (error) {
+              console.log('Note: Could not assign Copilot directly. Copilot will still see the issue due to labels.');
+            }
+            
+            // Add a comment to trigger Copilot coding agent
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issue.data.number,
+              body: `@github-copilot please analyze the build failure and create a pull request with a fix for the JF-Pieper-Modifications branch.
+              
+              Focus on:
+              1. Identifying compilation errors or workflow issues
+              2. Preserving JF-Pieper modifications (HELTEC_MESH_NODE_T114 conditional compilation)
+              3. Ensuring successful build for heltec-mesh-node-t114 environment
+              4. Maintaining GPL-3.0 compliance
+              
+              Please create a PR targeting the JF-Pieper-Modifications branch with the fix.`
+            });
+            
+            console.log('✅ Triggered GitHub Copilot coding agent for automatic fix');
+          }
+          
+    - name: Report auto-fix status
+      if: always()
+      run: |
+        echo "🤖 GitHub Copilot coding agent has been notified of the build failure"
+        echo "📋 A detailed issue has been created with fix instructions"
+        echo "🔧 Copilot will analyze the failure and create a pull request with a fix"
+        echo "⏱️  Expected response time: A few minutes to an hour"
+        echo "🎯 Target branch: JF-Pieper-Modifications"
+        echo ""
+        echo "You can monitor progress at: https://github.com/${GITHUB_REPOSITORY}/issues?q=is%3Aopen+label%3Acopilot-fix-request"
