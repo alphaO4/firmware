@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - master  # Trigger on every push/merge to master
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch: {} # Allow manual triggering
 
 jobs:
   auto-merge:

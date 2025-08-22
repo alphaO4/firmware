@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - JF-Pieper-Modifications  # Trigger on every push/merge to your branch
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch: {} # Allow manual triggering
 
 jobs:
   build-t114:
