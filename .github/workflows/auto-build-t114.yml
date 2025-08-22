@@ -199,7 +199,7 @@ jobs:
       - name: Create GitHub Release
         id: create_release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="${{ steps.generate_tag.outputs.tag_name }}"
           RELEASE_NAME="${{ steps.generate_tag.outputs.release_name }}"
@@ -281,7 +281,7 @@ jobs:
           
       - name: Upload Release Assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "📎 Uploading release assets..."
           
@@ -327,7 +327,7 @@ jobs:
           
       - name: Upload source & license assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="${{ steps.generate_tag.outputs.tag_name }}"
           cd release
