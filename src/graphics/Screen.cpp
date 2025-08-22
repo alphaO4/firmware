@@ -2060,6 +2060,29 @@ void Screen::setFrames(FrameFocus focus)
 
     LOG_DEBUG("Added modules.  numframes: %d", numframes);
 
+#ifdef HELTEC_MESH_NODE_T114
+    // For T114: Only show text messages and debug info (which shows "No GPS present")
+    
+    // If we have a critical fault, show it first
+    fsi.positions.fault = numframes;
+    if (error_code) {
+        normalFrames[numframes++] = drawCriticalFaultFrame;
+        focus = FOCUS_FAULT; // Change our "focus" parameter, to ensure we show the fault frame
+    }
+
+    // If we have a text message - show it next, unless it's a phone message and we aren't using any special modules
+    if (devicestate.has_rx_text_message && shouldDrawMessage(&devicestate.rx_text_message)) {
+        fsi.positions.textMessage = numframes;
+        normalFrames[numframes++] = drawTextMessageFrame;
+    }
+
+    // Only show the debug info settings screen (which includes "No GPS present" message)
+    fsi.positions.settings = numframes;
+    normalFrames[numframes++] = &Screen::drawDebugInfoSettingsTrampoline;
+
+#else
+    // For all other devices: show all frames as before
+    
     // If we have a critical fault, show it first
     fsi.positions.fault = numframes;
     if (error_code) {
@@ -2100,6 +2123,7 @@ void Screen::setFrames(FrameFocus focus)
         // call a method on debugInfoScreen object (for more details)
         normalFrames[numframes++] = &Screen::drawDebugInfoWiFiTrampoline;
     }
+#endif
 #endif
 
     fsi.frameCount = numframes; // Total framecount is used to apply FOCUS_PRESERVE
