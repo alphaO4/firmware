@@ -123,7 +123,7 @@ jobs:
           "Meshtastic" is a trademark of Meshtastic LLC. 
           Use of Meshtastic trademark follows fair use for compatibility description only.
           
-          Source Archive: https://github.com/meshtastic/firmware/archive/${{ github.sha }}.tar.gz
+          Source Archive: https://github.com/alphaO4/firmware/archive/refs/heads/JF-Pieper-Modifications.tar.gz
           Build Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
           Build Environment: Ubuntu $(lsb_release -rs), PlatformIO $(pio --version), Python $(python3 --version)
           EOF
@@ -156,12 +156,214 @@ jobs:
           
           echo "✅ Generated compliance documentation"
           
+      - name: Create exact source tarball for this build
+        run: |
+          mkdir -p release
+          git archive --format=tar.gz --output "release/source-${{ github.sha }}.tar.gz" ${{ github.sha }}
+          # If you use submodules, vendor them too:
+          if [ -f .gitmodules ]; then
+            mkdir -p release/source-${{ github.sha }}-submodules
+            git submodule foreach --recursive 'git archive --format=tar > "$toplevel/release/source-${{ github.sha }}-submodules/${name//\//_}.tar" HEAD'
+          fi
+          
+      - name: Include LICENSE and manifest
+        run: |
+          cp LICENSE release/ || true
+          {
+            echo "Build commit: ${{ github.sha }}"
+            echo "Board: heltec-mesh-node-t114"
+            echo "Rebuild: pip install platformio && pio run --environment heltec-mesh-node-t114"
+            echo "Artifacts:"
+            ls -1 release/
+          } > release/SOURCE-MANIFEST.txt
+          (cd release && sha256sum * > SHA256SUMS.txt)
+          
       - name: Upload T114 firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: heltec-t114-firmware-${{ github.sha }}
           path: release/*
           retention-days: 30
+          
+      - name: Generate release tag
+        id: generate_tag
+        run: |
+          # Generate a timestamp-based tag for the release
+          TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
+          TAG_NAME="t114-jf-pieper-${TIMESTAMP}"
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "release_name=Heltec T114 JF-Pieper Build ${TIMESTAMP}" >> $GITHUB_OUTPUT
+          echo "Generated tag: ${TAG_NAME}"
+          
+      - name: Create GitHub Release
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ steps.generate_tag.outputs.tag_name }}"
+          RELEASE_NAME="${{ steps.generate_tag.outputs.release_name }}"
+          
+          # Create release body in a file to handle multiline properly
+          cat > release_body.md << 'EOF'
+          ## 🚀 Heltec T114 Firmware - JF-Pieper Modifications
+          
+          **Auto-built firmware for Heltec Mesh Node T114 with custom modifications.**
+          
+          ### 🎯 Features Included:
+          - ✅ **Simplified Display**: Shows only messages and settings screens
+          - ✅ **GPS Status**: Shows "No GPS present" message when applicable  
+          - ✅ **Optimized Interface**: Removed unnecessary pages (clock, nodes, WiFi, debug log)
+          - ✅ **Conditional Compilation**: Protected by `HELTEC_MESH_NODE_T114` flag
+          
+          ### 📦 Installation Files:
+          - **firmware-heltec-mesh-node-t114-${{ github.sha }}.uf2** - Drag-and-drop installation file
+          - **firmware-heltec-mesh-node-t114-${{ github.sha }}.hex** - Programming tool compatible
+          - **firmware-heltec-mesh-node-t114-${{ github.sha }}.elf** - Debug symbols included
+          - **GPL-3.0-COMPLIANCE-NOTICE.txt** - License compliance documentation
+          - **INSTALLATION-INSTRUCTIONS.txt** - Step-by-step installation guide
+          
+          ### 🛠️ Installation Instructions:
+          
+          **Method 1: UF2 Drag-and-Drop (Recommended)**
+          1. Connect T114 device via USB cable
+          2. Double-tap the reset button to enter bootloader mode
+          3. Device appears as USB mass storage device
+          4. Drag the `.uf2` file to the device
+          5. Device automatically reboots with new firmware
+          
+          **Method 2: Programming Tool**
+          1. Install nRF Connect Programmer or similar tool
+          2. Connect T114 device via USB or SWD
+          3. Flash the `.hex` file
+          
+          ### 📋 Build Information:
+          - **Branch**: JF-Pieper-Modifications
+          - **Commit**: ${{ github.sha }}
+          - **Architecture**: nRF52840
+          - **Board**: heltec-mesh-node-t114
+          - **Build Date**: ${{ steps.generate_tag.outputs.tag_name }}
+          - **GPL-3.0 Licensed**: Full source and compliance documentation included
+          
+          ### ⚖️ License & Compliance:
+          This firmware is based on Meshtastic (GPL-3.0) with JF-Pieper modifications. 
+          Complete source code and build instructions are available at: 
+          [Commit ${{ github.sha }}](https://github.com/meshtastic/firmware/commit/${{ github.sha }})
+          
+          ### 🔗 Links:
+          - 📖 [Installation Guide](https://github.com/alphaO4/firmware/blob/JF-Pieper-Modifications/README.md)
+          - 🐛 [Report Issues](https://github.com/alphaO4/firmware/issues)
+          - 📜 [GPL-3.0 License](https://github.com/alphaO4/firmware/blob/JF-Pieper-Modifications/LICENSE)
+          - 🔍 [Source Archive](https://github.com/alphaO4/firmware/archive/refs/heads/JF-Pieper-Modifications.tar.gz)
+          
+          **Ready for deployment on Heltec T114 devices! 🎉**
+          EOF
+          
+      - name: Fix release body (pin to exact commit in your fork)
+        run: |
+          # Fix the commit link to point to your fork instead of meshtastic
+          sed -i "s|https://github.com/meshtastic/firmware/commit/${{ github.sha }}|https://github.com/alphaO4/firmware/commit/${{ github.sha }}|g" release_body.md
+          # Make the source link prominent at the top:
+          sed -i "1i **📦 Complete Corresponding Source (GPL-3.0): [source-${{ github.sha }}.tar.gz](./source-${{ github.sha }}.tar.gz)** - Exact source code for these binaries\n" release_body.md
+          
+          # Create the release using GitHub CLI
+          gh release create "${TAG_NAME}" \
+            --title "${RELEASE_NAME}" \
+            --notes-file release_body.md \
+            --target "JF-Pieper-Modifications"
+          
+          # Get the release URL and set outputs
+          RELEASE_URL=$(gh release view "${TAG_NAME}" --json url --jq '.url')
+          echo "html_url=${RELEASE_URL}" >> $GITHUB_OUTPUT
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+          
+          echo "✅ Release created: ${RELEASE_URL}"
+          
+      - name: Upload Release Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "📎 Uploading release assets..."
+          
+          TAG_NAME="${{ steps.generate_tag.outputs.tag_name }}"
+          
+          # Navigate to release directory
+          cd release
+          
+          # Upload firmware files using GitHub CLI
+          echo "Uploading firmware files..."
+          
+          if [ -f "firmware-heltec-mesh-node-t114-${{ github.sha }}.uf2" ]; then
+            gh release upload "${TAG_NAME}" "firmware-heltec-mesh-node-t114-${{ github.sha }}.uf2"
+            echo "✅ Uploaded .uf2 file"
+          fi
+          
+          if [ -f "firmware-heltec-mesh-node-t114-${{ github.sha }}.hex" ]; then
+            gh release upload "${TAG_NAME}" "firmware-heltec-mesh-node-t114-${{ github.sha }}.hex"
+            echo "✅ Uploaded .hex file"
+          fi
+          
+          if [ -f "firmware-heltec-mesh-node-t114-${{ github.sha }}.elf" ]; then
+            gh release upload "${TAG_NAME}" "firmware-heltec-mesh-node-t114-${{ github.sha }}.elf"
+            echo "✅ Uploaded .elf file"
+          fi
+          
+          if [ -f "firmware-heltec-mesh-node-t114-${{ github.sha }}.zip" ]; then
+            gh release upload "${TAG_NAME}" "firmware-heltec-mesh-node-t114-${{ github.sha }}.zip"
+            echo "✅ Uploaded .zip package"
+          fi
+          
+          # Upload documentation files
+          echo "Uploading documentation..."
+          gh release upload "${TAG_NAME}" "GPL-3.0-COMPLIANCE-NOTICE.txt"
+          gh release upload "${TAG_NAME}" "INSTALLATION-INSTRUCTIONS.txt"
+          echo "✅ Uploaded documentation files"
+          
+          echo "🎉 All release assets uploaded successfully!"
+          
+          # List all uploaded assets
+          echo "📦 Release assets:"
+          gh release view "${TAG_NAME}" --json assets --jq '.assets[].name'
+          
+      - name: Upload source & license assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ steps.generate_tag.outputs.tag_name }}"
+          cd release
+          
+          echo "📎 Uploading GPL-3.0 compliance assets..."
+          
+          # Upload exact source tarball
+          if [ -f "source-${{ github.sha }}.tar.gz" ]; then
+            gh release upload "${TAG_NAME}" "source-${{ github.sha }}.tar.gz"
+            echo "✅ Uploaded exact source tarball"
+          fi
+          
+          # Upload submodules if they exist
+          if [ -d "source-${{ github.sha }}-submodules" ]; then
+            gh release upload "${TAG_NAME}" source-${{ github.sha }}-submodules/*
+            echo "✅ Uploaded submodule source archives"
+          fi
+          
+          # Upload checksums and manifest
+          gh release upload "${TAG_NAME}" "SHA256SUMS.txt"
+          gh release upload "${TAG_NAME}" "SOURCE-MANIFEST.txt"
+          echo "✅ Uploaded checksums and source manifest"
+          
+          # Upload LICENSE file if it exists
+          if [ -f "LICENSE" ]; then
+            gh release upload "${TAG_NAME}" "LICENSE"
+            echo "✅ Uploaded LICENSE file"
+          elif [ -f "../LICENSE" ]; then
+            gh release upload "${TAG_NAME}" "../LICENSE"
+            echo "✅ Uploaded LICENSE file from repository root"
+          fi
+          
+          echo "✅ All GPL-3.0 compliance assets uploaded!"
+          
+          # List final assets
+          echo "📦 Complete release assets:"
+          gh release view "${TAG_NAME}" --json assets --jq '.assets[].name'
           
       - name: Create build summary
         run: |
@@ -179,13 +381,19 @@ jobs:
           echo "- **Architecture:** nRF52840" >> $GITHUB_STEP_SUMMARY
           echo "- **Board:** heltec-mesh-node-t114" >> $GITHUB_STEP_SUMMARY
           echo "- **Build artifacts:** heltec-t114-firmware-${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release tag:** ${{ steps.generate_tag.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎉 Release Created:" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 **Release:** [${{ steps.generate_tag.outputs.release_name }}](${{ steps.create_release.outputs.html_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "- 📥 **Download:** [Direct download](${{ steps.create_release.outputs.html_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "- 🚀 **Ready for deployment:** All firmware files and documentation included" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### GPL-3.0 Compliance:" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Compliance documentation included in artifacts" >> $GITHUB_STEP_SUMMARY
           echo "- 📄 GPL-3.0-COMPLIANCE-NOTICE.txt" >> $GITHUB_STEP_SUMMARY
           echo "- 📋 INSTALLATION-INSTRUCTIONS.txt" >> $GITHUB_STEP_SUMMARY
           echo "- 🔗 Source: [commit ${{ github.sha }}](https://github.com/alphaO4/firmware/commit/${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
-          echo "- 📦 Source archive: [Download](https://github.com/alphaO4/firmware/archive/${{ github.sha }}.tar.gz)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Source archive: [Download](https://github.com/alphaO4/firmware/archive/refs/heads/JF-Pieper-Modifications.tar.gz)" >> $GITHUB_STEP_SUMMARY
           
       - name: Comment on commit (if available)
         if: github.event_name == 'push'
@@ -200,15 +408,27 @@ jobs:
             ✅ Successfully built firmware with JF-Pieper modifications
             📦 Artifacts: \`heltec-t114-firmware-${sha}\`
             
+            **🎉 Release Created:**
+            - 📦 **Release:** [${{ steps.generate_tag.outputs.release_name }}](${{ steps.create_release.outputs.html_url }})
+            - 📥 **Direct Download:** [Get firmware files](${{ steps.create_release.outputs.html_url }})
+            - 🏷️ **Tag:** \`${{ steps.generate_tag.outputs.tag_name }}\`
+            
             **Features included:**
             - Simplified display (messages + settings only)  
             - "No GPS present" message in debug info
             - Removed unnecessary pages for T114 device
             
+            **Installation Files:**
+            - 🔧 \`.uf2\` - Drag-and-drop installation
+            - 🔧 \`.hex\` - Programming tool compatible  
+            - 🔧 \`.elf\` - Debug symbols included
+            - 📋 GPL-3.0 compliance documentation
+            - 📖 Installation instructions
+            
             **GPL-3.0 Compliance:**
             - 📄 Compliance documentation included
             - 🔗 Source: [commit ${sha}](https://github.com/alphaO4/firmware/commit/${sha})
-            - 📦 Source archive: [Download](https://github.com/meshtastic/firmware/archive/${sha}.tar.gz)
+            - 📦 Source archive: [Download](https://github.com/alphaO4/firmware/archive/refs/heads/JF-Pieper-Modifications.tar.gz)
             
             **Ready for deployment!** 🚀`;
             
@@ -249,12 +469,16 @@ jobs:
           - Missing dependencies
           - Source code compilation errors
           - JF-Pieper modifications may have been corrupted
+          - GitHub release creation failure
+          - Asset upload issues
           
           **Manual verification needed:**
           1. Check that HELTEC_MESH_NODE_T114 conditional compilation is present
           2. Verify Screen.cpp modifications are intact
           3. Review build logs for specific errors
           4. Test local build: \`pio run --environment heltec-mesh-node-t114\`
+          5. Check GitHub token permissions for release creation
+          6. Verify release tag generation and asset uploads
           
           **Auto-build will retry on next merge.**
           `;
