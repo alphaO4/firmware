@@ -71,15 +71,8 @@ After building, firmware files are located in `.pio/build/heltec-mesh-node-t114/
 ## Documentation
 
 * [Official Meshtastic Documentation](https://meshtastic.org)
-* [Building Instructions](https://meshtastic.org/docs/development/firmware/build)
-* [Flashing Instructions](https://meshtastic.org/docs/getting-started/flashing-firmware/)
+* [Official Building Instructions](https://meshtastic.org/docs/development/firmware/build)
+* [Official Flashing Instructions](https://meshtastic.org/docs/getting-started/flashing-firmware/)
 * [JF-Pieper Workflow Documentation](.github/workflows/README.md)
 * [Changes Log](CHANGES.md)
-
-## Stats
-
-![Alt](https://repobeats.axiom.co/api/embed/a92f097d9197ae853e780ec53d7d126e545629ab.svg "Repobeats analytics image")
-
-
-# testing after enabling actions for github apps
 
