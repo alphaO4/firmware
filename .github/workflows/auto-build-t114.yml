@@ -176,7 +176,8 @@ jobs:
             echo "Artifacts:"
             ls -1 release/
           } > release/SOURCE-MANIFEST.txt
-          (cd release && sha256sum * > SHA256SUMS.txt)
+          # Generate checksums only for files, not directories
+          (cd release && find . -maxdepth 1 -type f -exec sha256sum {} \; > SHA256SUMS.txt)
           
       - name: Upload T114 firmware artifacts
         uses: actions/upload-artifact@v4
