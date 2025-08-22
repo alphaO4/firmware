@@ -1,7 +1,9 @@
-# Auto-merge Workflow Documentation
+# Auto-merge and Auto-build Workflow Documentation
 
 ## Overview
-This GitHub Action automatically merges changes from the `master` branch into the `JF-Pieper-Modifications` branch while preserving specific modifications to `Screen.cpp`.
+This setup provides two automated workflows:
+1. **Auto-merge**: Automatically merges changes from `master` branch into `JF-Pieper-Modifications` branch while preserving specific modifications to `Screen.cpp`
+2. **Auto-build**: Automatically builds Heltec T114 firmware after every merge to the JF-Pieper-Modifications branch
 
 ## JF-Pieper Screen.cpp Modifications
 The workflow preserves the following modifications in `src/graphics/Screen.cpp`:
@@ -41,11 +43,36 @@ The workflow specifically protects this conditional compilation block that simpl
 - **Shows only critical content**: fault messages, text messages, and debug info settings
 - **Preserves "No GPS present" message** through the debug info settings screen
 
-## Workflow Behavior
+### Integration with Auto-merge
+The workflows work together seamlessly:
+1. **Master changes** → Auto-merge merges to JF-Pieper-Modifications → Auto-build creates new T114 firmware
+2. **Direct commits** to JF-Pieper-Modifications → Auto-build creates new T114 firmware
+3. **Always current**: Your T114 firmware is automatically updated whenever changes occur
+
+## Merge Strategy (Auto-merge Workflow)
 
 ### Automatic Execution
-- Runs automatically on every push/merge to the `master` branch
-- Can be manually triggered from the GitHub Actions tab
+- **Auto-merge**: Runs automatically on every push/merge to the `master` branch
+- **Auto-build**: Runs automatically on every push/merge to the `JF-Pieper-Modifications` branch
+- Both can be manually triggered from the GitHub Actions tab
+
+## Auto-build T114 Workflow
+
+### Features
+- **Automated Building**: Builds T114 firmware immediately after any merge to JF-Pieper-Modifications
+- **Verification**: Confirms JF-Pieper modifications are present in the source code before building
+- **Artifact Upload**: Saves built firmware files (.hex, .uf2, .zip) for easy download
+- **Build Summary**: Creates detailed summary of build results and features
+- **Commit Comments**: Adds automatic comments to commits with build status
+- **Failure Handling**: Creates GitHub issues when builds fail
+
+### Build Artifacts
+After successful builds, you can download:
+- **Firmware files**: Ready-to-flash .hex and .uf2 files
+- **Debug files**: .elf files for debugging
+- **Distribution packages**: .zip files for sharing
+
+### Integration with Auto-merge
 
 ### Merge Strategy
 1. **Simple merge**: If no conflicts, automatically merges master into JF-Pieper-Modifications
@@ -81,5 +108,6 @@ If the automatic merge fails, you can:
 - All other files accept master branch changes during conflicts
 
 ## Workflow Files
-- `.github/workflows/auto-merge-master.yml` - Main workflow
+- `.github/workflows/auto-merge-master.yml` - Main workflow that merges master to JF-Pieper-Modifications
+- `.github/workflows/auto-build-t114.yml` - Automatically builds T114 firmware after every merge
 - `.github/workflows/README.md` - This documentation
