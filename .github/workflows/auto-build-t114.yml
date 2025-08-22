@@ -346,9 +346,11 @@ jobs:
           fi
           
           # Upload submodules if they exist
-          if [ -d "source-${{ github.sha }}-submodules" ]; then
+          if [ -d "source-${{ github.sha }}-submodules" ] && [ "$(ls -A source-${{ github.sha }}-submodules)" ]; then
             gh release upload "${TAG_NAME}" source-${{ github.sha }}-submodules/*
             echo "✅ Uploaded submodule source archives"
+          else
+            echo "📝 No submodules found - skipping submodule upload"
           fi
           
           # Upload checksums and manifest
