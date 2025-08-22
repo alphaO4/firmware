@@ -1,0 +1,244 @@
+name: Auto-merge master to JF-Pieper-Modifications
+
+on:
+  push:
+    branches:
+      - master  # Trigger on every push/merge to master
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Configure git
+      run: |
+        git config --global user.name "GitHub Action"
+        git config --global user.email "action@github.com"
+    
+    - name: Setup merge strategy
+      run: |
+        # Configure merge strategy to prefer our changes for Screen.cpp
+        echo "src/graphics/Screen.cpp merge=ours" >> .gitattributes
+        git add .gitattributes
+        git commit -m "Add merge strategy for Screen.cpp" || true
+    
+    - name: Switch to JF-Pieper-Modifications branch
+      run: |
+        git checkout JF-Pieper-Modifications
+    
+    - name: Backup current Screen.cpp
+      run: |
+        cp src/graphics/Screen.cpp /tmp/screen_backup.cpp
+    
+    - name: Attempt automatic merge from master
+      id: auto_merge
+      run: |
+        echo "Attempting automatic merge from master..."
+        if git merge origin/master --no-edit; then
+          echo "merge_success=true" >> $GITHUB_OUTPUT
+          echo "Automatic merge successful"
+        else
+          echo "merge_success=false" >> $GITHUB_OUTPUT
+          echo "Merge conflicts detected"
+        fi
+    
+    - name: Handle Screen.cpp conflicts intelligently
+      if: steps.auto_merge.outputs.merge_success == 'false'
+      run: |
+        # Check if Screen.cpp has conflicts
+        if git status --porcelain | grep -q "src/graphics/Screen.cpp"; then
+          echo "Screen.cpp has conflicts - preserving JF-Pieper modifications"
+          
+          # Restore our version of Screen.cpp
+          git checkout --ours src/graphics/Screen.cpp
+          
+          # Get the master version to a temp file
+          git show origin/master:src/graphics/Screen.cpp > /tmp/master_screen.cpp
+          
+          # Create a smart merge script
+          cat > /tmp/smart_merge.py << 'EOF'
+          #!/usr/bin/env python3
+          import re
+          import sys
+          
+          def smart_merge_screen_cpp():
+              # Read our version (with JF-Pieper modifications)
+              with open('src/graphics/Screen.cpp', 'r') as f:
+                  our_content = f.read()
+              
+              # Read master version
+              with open('/tmp/master_screen.cpp', 'r') as f:
+                  master_content = f.read()
+              
+              # Find the HELTEC_MESH_NODE_T114 section in our version
+              our_t114_pattern = r'#ifdef HELTEC_MESH_NODE_T114.*?#else.*?#endif'
+              our_t114_match = re.search(our_t114_pattern, our_content, re.DOTALL)
+              
+              if not our_t114_match:
+                  print("Could not find JF-Pieper T114 modifications in our version")
+                  return False
+              
+              our_t114_section = our_t114_match.group(0)
+              
+              # Check if master has the same section
+              master_t114_match = re.search(our_t114_pattern, master_content, re.DOTALL)
+              
+              if master_t114_match:
+                  # Master has the section, replace it with ours
+                  result = master_content.replace(master_t114_match.group(0), our_t114_section)
+              else:
+                  # Master doesn't have the section, we need to add it
+                  # Find where to insert it (look for the existing fault section)
+                  fault_pattern = r'(\s+// If we have a critical fault, show it first\s+fsi\.positions\.fault = numframes;.*?focus = FOCUS_FAULT;[^\}]*\})'
+                  fault_match = re.search(fault_pattern, master_content, re.DOTALL)
+                  
+                  if fault_match:
+                      # Insert our T114 section before the existing fault section
+                      insertion_point = fault_match.start()
+                      result = (master_content[:insertion_point] + 
+                               "\n#ifdef HELTEC_MESH_NODE_T114\n" +
+                               "    // For T114: Only show text messages and debug info (which shows \"No GPS present\")\n    \n" +
+                               "    // If we have a critical fault, show it first\n" +
+                               "    fsi.positions.fault = numframes;\n" +
+                               "    if (error_code) {\n" +
+                               "        normalFrames[numframes++] = drawCriticalFaultFrame;\n" +
+                               "        focus = FOCUS_FAULT; // Change our \"focus\" parameter, to ensure we show the fault frame\n" +
+                               "    }\n\n" +
+                               "    // If we have a text message - show it next, unless it's a phone message and we aren't using any special modules\n" +
+                               "    if (devicestate.has_rx_text_message && shouldDrawMessage(&devicestate.rx_text_message)) {\n" +
+                               "        fsi.positions.textMessage = numframes;\n" +
+                               "        normalFrames[numframes++] = drawTextMessageFrame;\n" +
+                               "    }\n\n" +
+                               "    // Only show the debug info settings screen (which includes \"No GPS present\" message)\n" +
+                               "    fsi.positions.settings = numframes;\n" +
+                               "    normalFrames[numframes++] = &Screen::drawDebugInfoSettingsTrampoline;\n\n" +
+                               "#else\n" +
+                               "    // For all other devices: show all frames as before\n    \n" +
+                               master_content[insertion_point:])
+                  else:
+                      print("Could not find insertion point in master version")
+                      return False
+              
+              # Write the merged result
+              with open('src/graphics/Screen.cpp', 'w') as f:
+                  f.write(result)
+              
+              print("Successfully merged Screen.cpp with JF-Pieper modifications preserved")
+              return True
+          
+          if __name__ == "__main__":
+              success = smart_merge_screen_cpp()
+              sys.exit(0 if success else 1)
+          EOF
+          
+          python3 /tmp/smart_merge.py
+          
+          # Mark as resolved
+          git add src/graphics/Screen.cpp
+        fi
+        
+        # Handle any other conflicts by taking the master version
+        git status --porcelain | grep "^UU\|^AA\|^DD" | cut -c4- | while read file; do
+          if [ "$file" != "src/graphics/Screen.cpp" ]; then
+            echo "Auto-resolving conflict in $file (taking master version)"
+            git checkout --theirs "$file"
+            git add "$file"
+          fi
+        done
+        
+        # Complete the merge
+        git commit --no-edit || echo "No conflicts to commit"
+    
+    - name: Verify Screen.cpp modifications are preserved
+      run: |
+        if grep -q "HELTEC_MESH_NODE_T114" src/graphics/Screen.cpp && \
+           grep -q "Only show the debug info settings screen" src/graphics/Screen.cpp; then
+          echo "✓ JF-Pieper modifications preserved in Screen.cpp"
+        else
+          echo "✗ JF-Pieper modifications may have been lost!"
+          exit 1
+        fi
+    
+    - name: Push merged changes
+      run: |
+        git push origin JF-Pieper-Modifications
+    
+    - name: Create summary comment
+      run: |
+        echo "## Auto-merge Summary" >> $GITHUB_STEP_SUMMARY
+        echo "Successfully merged master branch into JF-Pieper-Modifications" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ JF-Pieper Screen.cpp modifications preserved" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ All other changes from master merged" >> $GITHUB_STEP_SUMMARY
+        echo "- 📝 Changes pushed to JF-Pieper-Modifications branch" >> $GITHUB_STEP_SUMMARY
+
+  notify-on-failure:
+    runs-on: ubuntu-latest
+    needs: auto-merge
+    if: failure()
+    
+    steps:
+    - name: Create issue on merge failure
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const title = '🚨 Auto-merge failed: master → JF-Pieper-Modifications';
+          const body = `
+          The automatic merge from master to JF-Pieper-Modifications branch failed.
+          
+          **Possible causes:**
+          - Complex merge conflicts that require manual resolution
+          - Changes to Screen.cpp structure that conflict with JF-Pieper modifications
+          - Other significant code changes
+          
+          **Manual action required:**
+          1. Checkout the JF-Pieper-Modifications branch
+          2. Manually merge master: \`git merge master\`
+          3. Resolve any conflicts, ensuring JF-Pieper Screen.cpp modifications are preserved
+          4. Push the resolved merge
+          
+          **JF-Pieper modifications to preserve:**
+          - HELTEC_MESH_NODE_T114 conditional compilation
+          - Simplified frame display (only messages and settings)
+          - Debug info settings screen showing "No GPS present"
+          
+          Run ID: ${context.runId}
+          `;
+          
+          // Check if issue already exists
+          const existingIssues = await github.rest.issues.listForRepo({
+            owner,
+            repo,
+            state: 'open',
+            labels: 'auto-merge-failure'
+          });
+          
+          const existingIssue = existingIssues.data.find(issue => 
+            issue.title.includes('Auto-merge failed: master → JF-Pieper-Modifications')
+          );
+          
+          if (existingIssue) {
+            // Update existing issue
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existingIssue.number,
+              body: `Another auto-merge attempt failed.\n\n${body}`
+            });
+          } else {
+            // Create new issue
+            await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              body,
+              labels: ['auto-merge-failure', 'needs-attention']
+            });
+          }
