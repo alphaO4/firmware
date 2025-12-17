@@ -206,6 +206,11 @@ No longer populated on PCB
 #define VBAT_AR_INTERNAL AR_INTERNAL_3_0
 #define ADC_MULTIPLIER (4.90F)
 
+// PWM Buzzer
+#define PIN_BUZZER (0 + 28)          // P0.28 for PWM buzzer output
+#define PIN_BUZZER_EN (0 + 28)       // Same pin, used by some code paths
+#define EXT_NOTIFY_OUT (0 + 28)      // Default external notification output
+
 #define HAS_RTC 0
 #ifdef __cplusplus
 }

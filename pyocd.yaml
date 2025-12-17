@@ -5,3 +5,7 @@
 semihost_console_type: telnet
 enable_semihosting: True
 telnet_port: 4444
+
+# Enable internal pull-up resistors on SWD pins for more reliable debugging
+probes.nrf_ap.use_swdio_pullup: True
+probes.nrf_ap.use_swclk_pullup: True
