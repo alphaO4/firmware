@@ -7,6 +7,9 @@
  * notification outputs and to play ringtones using PWM buzzer. It also includes default configurations and a runOnce() method to
  * handle the module's behavior.
  *
+ * Extended for FF Kladow Meshtastic Pager project to support prefix-based ringtone selection.
+ * Different message prefixes (ALARM:, EINSATZ:, LSP_ALARM:, T100E:*) trigger different RTTTL ringtones.
+ *
  * Documentation:
  * https://meshtastic.org/docs/configuration/module/external-notification
  *
@@ -181,7 +184,9 @@ int32_t ExternalNotificationModule::runOnce()
             if (audioThread->isPlaying()) {
                 // Continue playing
             } else if (isNagging && (nagCycleCutoff >= millis())) {
-                audioThread->beginRttl(rtttlConfig.ringtone, strlen_P(rtttlConfig.ringtone));
+                // Use alert-type-specific ringtone for looping
+                const char *selectedRingtone = getRingtoneForAlertType(currentAlertType);
+                audioThread->beginRttl(selectedRingtone, strlen(selectedRingtone));
             }
         }
 #endif
@@ -190,8 +195,9 @@ int32_t ExternalNotificationModule::runOnce()
             if (rtttl::isPlaying()) {
                 rtttl::play();
             } else if (isNagging && (nagCycleCutoff >= millis())) {
-                // start the song again if we have time left
-                rtttl::begin(config.device.buzzer_gpio, rtttlConfig.ringtone);
+                // start the song again if we have time left - use alert-type-specific ringtone
+                const char *selectedRingtone = getRingtoneForAlertType(currentAlertType);
+                rtttl::begin(config.device.buzzer_gpio, selectedRingtone);
             }
         }
 
@@ -323,13 +329,14 @@ ExternalNotificationModule::ExternalNotificationModule()
     if (moduleConfig.external_notification.enabled) {
         if (nodeDB->loadProto(rtttlConfigFile, meshtastic_RTTTLConfig_size, sizeof(meshtastic_RTTTLConfig),
                               &meshtastic_RTTTLConfig_msg, &rtttlConfig) != LoadFileResult::LOAD_SUCCESS) {
-            memset(rtttlConfig.ringtone, 0, sizeof(rtttlConfig.ringtone));
-            strncpy(rtttlConfig.ringtone,
-                    "24:d=32,o=5,b=565:f6,p,f6,4p,p,f6,p,f6,2p,p,b6,p,b6,p,b6,p,b6,p,b,p,b,p,b,p,b,p,b,p,b,p,b,p,b,1p.,2p.,p",
-                    sizeof(rtttlConfig.ringtone));
+            // Initialize all ringtone fields to empty
+            memset(&rtttlConfig, 0, sizeof(rtttlConfig));
         }
 
-        LOG_INFO("Init External Notification Module");
+        // Initialize default ringtones for any empty fields
+        initDefaultRingtones();
+
+        LOG_INFO("Init External Notification Module (with prefix-based ringtones)");
 
         output = moduleConfig.external_notification.output ? moduleConfig.external_notification.output
                                                            : EXT_NOTIFICATION_MODULE_OUTPUT;
@@ -405,6 +412,15 @@ ProcessMessage ExternalNotificationModule::handleReceived(const meshtastic_MeshP
                 }
             }
 
+            // Detect alert type based on message prefix for ringtone selection
+            currentAlertType = detectAlertType(p.payload.bytes, p.payload.size);
+            if (currentAlertType != AlertType::DEFAULT) {
+                LOG_INFO("Detected alert type: %s", getAlertTypeName(currentAlertType));
+            }
+
+            // Check if this alert type should produce sound (T100E:ACK should not)
+            bool shouldPlaySound = alertTypeHasSound(currentAlertType);
+
             if (moduleConfig.external_notification.alert_bell) {
                 if (containsBell) {
                     LOG_INFO("externalNotificationModule - Notification Bell");
@@ -438,10 +454,12 @@ ProcessMessage ExternalNotificationModule::handleReceived(const meshtastic_MeshP
                     if (!moduleConfig.external_notification.use_pwm) {
                         setExternalState(2, true);
                     } else {
+                        // Use alert-type-specific ringtone
+                        const char *selectedRingtone = getRingtoneForAlertType(currentAlertType);
 #ifdef HAS_I2S
-                        audioThread->beginRttl(rtttlConfig.ringtone, strlen_P(rtttlConfig.ringtone));
+                        audioThread->beginRttl(selectedRingtone, strlen(selectedRingtone));
 #else
-                        rtttl::begin(config.device.buzzer_gpio, rtttlConfig.ringtone);
+                        rtttl::begin(config.device.buzzer_gpio, selectedRingtone);
 #endif
                     }
                     if (moduleConfig.external_notification.nag_timeout) {
@@ -475,23 +493,33 @@ ProcessMessage ExternalNotificationModule::handleReceived(const meshtastic_MeshP
             }
 
             if (moduleConfig.external_notification.alert_message_buzzer) {
-                LOG_INFO("externalNotificationModule - Notification Module (Buzzer)");
-                isNagging = true;
-                if (!moduleConfig.external_notification.use_pwm && !moduleConfig.external_notification.use_i2s_as_buzzer) {
-                    setExternalState(2, true);
+                // Skip sound for alert types that shouldn't produce sound (e.g., T100E:ACK)
+                if (!shouldPlaySound) {
+                    LOG_INFO("externalNotificationModule - Skipping buzzer for silent alert type: %s",
+                             getAlertTypeName(currentAlertType));
                 } else {
+                    LOG_INFO("externalNotificationModule - Notification Module (Buzzer) - AlertType: %s",
+                             getAlertTypeName(currentAlertType));
+                    isNagging = true;
+                    if (!moduleConfig.external_notification.use_pwm && !moduleConfig.external_notification.use_i2s_as_buzzer) {
+                        setExternalState(2, true);
+                    } else {
+                        // Use alert-type-specific ringtone
+                        const char *selectedRingtone = getRingtoneForAlertType(currentAlertType);
+                        LOG_DEBUG("Playing ringtone for alert type %s", getAlertTypeName(currentAlertType));
 #ifdef HAS_I2S
-                    if (moduleConfig.external_notification.use_i2s_as_buzzer) {
-                        audioThread->beginRttl(rtttlConfig.ringtone, strlen_P(rtttlConfig.ringtone));
-                    }
+                        if (moduleConfig.external_notification.use_i2s_as_buzzer) {
+                            audioThread->beginRttl(selectedRingtone, strlen(selectedRingtone));
+                        }
 #else
-                    rtttl::begin(config.device.buzzer_gpio, rtttlConfig.ringtone);
+                        rtttl::begin(config.device.buzzer_gpio, selectedRingtone);
 #endif
-                }
-                if (moduleConfig.external_notification.nag_timeout) {
-                    nagCycleCutoff = millis() + moduleConfig.external_notification.nag_timeout * 1000;
-                } else {
-                    nagCycleCutoff = millis() + moduleConfig.external_notification.output_ms;
+                    }
+                    if (moduleConfig.external_notification.nag_timeout) {
+                        nagCycleCutoff = millis() + moduleConfig.external_notification.nag_timeout * 1000;
+                    } else {
+                        nagCycleCutoff = millis() + moduleConfig.external_notification.output_ms;
+                    }
                 }
             }
             setIntervalFromNow(0); // run once so we know if we should do something
@@ -560,4 +588,132 @@ void ExternalNotificationModule::handleSetRingtone(const char *from_msg)
     if (changed) {
         nodeDB->saveProto(rtttlConfigFile, meshtastic_RTTTLConfig_size, &meshtastic_RTTTLConfig_msg, &rtttlConfig);
     }
+}
+
+/**
+ * @brief Initialize default ringtones for all alert types if not already configured.
+ *
+ * This function is called during module initialization to ensure all ringtone
+ * fields have valid RTTTL strings. If a field is empty, it's filled with the
+ * default ringtone for that alert type.
+ */
+void ExternalNotificationModule::initDefaultRingtones()
+{
+    bool needsSave = false;
+
+    // Default/fallback ringtone
+    if (strlen(rtttlConfig.ringtone) == 0) {
+        strncpy(rtttlConfig.ringtone, DEFAULT_RTTTL_RINGTONE, sizeof(rtttlConfig.ringtone) - 1);
+        rtttlConfig.ringtone[sizeof(rtttlConfig.ringtone) - 1] = '\0';
+        needsSave = true;
+        LOG_DEBUG("Initialized default ringtone");
+    }
+
+    // ALARM: ringtone - urgent fire department alarm
+    if (strlen(rtttlConfig.alarm_ringtone) == 0) {
+        strncpy(rtttlConfig.alarm_ringtone, ALARM_RTTTL_RINGTONE, sizeof(rtttlConfig.alarm_ringtone) - 1);
+        rtttlConfig.alarm_ringtone[sizeof(rtttlConfig.alarm_ringtone) - 1] = '\0';
+        needsSave = true;
+        LOG_DEBUG("Initialized ALARM ringtone");
+    }
+
+    // EINSATZ: ringtone - standard deployment
+    if (strlen(rtttlConfig.einsatz_ringtone) == 0) {
+        strncpy(rtttlConfig.einsatz_ringtone, EINSATZ_RTTTL_RINGTONE, sizeof(rtttlConfig.einsatz_ringtone) - 1);
+        rtttlConfig.einsatz_ringtone[sizeof(rtttlConfig.einsatz_ringtone) - 1] = '\0';
+        needsSave = true;
+        LOG_DEBUG("Initialized EINSATZ ringtone");
+    }
+
+    // LSP_ALARM: ringtone - youth group alerts
+    if (strlen(rtttlConfig.lsp_alarm_ringtone) == 0) {
+        strncpy(rtttlConfig.lsp_alarm_ringtone, LSP_ALARM_RTTTL_RINGTONE, sizeof(rtttlConfig.lsp_alarm_ringtone) - 1);
+        rtttlConfig.lsp_alarm_ringtone[sizeof(rtttlConfig.lsp_alarm_ringtone) - 1] = '\0';
+        needsSave = true;
+        LOG_DEBUG("Initialized LSP_ALARM ringtone");
+    }
+
+    // T100E:ALARM: ringtone
+    if (strlen(rtttlConfig.t100e_alarm_ringtone) == 0) {
+        strncpy(rtttlConfig.t100e_alarm_ringtone, T100E_ALARM_RTTTL_RINGTONE, sizeof(rtttlConfig.t100e_alarm_ringtone) - 1);
+        rtttlConfig.t100e_alarm_ringtone[sizeof(rtttlConfig.t100e_alarm_ringtone) - 1] = '\0';
+        needsSave = true;
+        LOG_DEBUG("Initialized T100E_ALARM ringtone");
+    }
+
+    // T100E:EINSATZ: ringtone
+    if (strlen(rtttlConfig.t100e_einsatz_ringtone) == 0) {
+        strncpy(rtttlConfig.t100e_einsatz_ringtone, T100E_EINSATZ_RTTTL_RINGTONE, sizeof(rtttlConfig.t100e_einsatz_ringtone) - 1);
+        rtttlConfig.t100e_einsatz_ringtone[sizeof(rtttlConfig.t100e_einsatz_ringtone) - 1] = '\0';
+        needsSave = true;
+        LOG_DEBUG("Initialized T100E_EINSATZ ringtone");
+    }
+
+    // T100E:TEST: ringtone
+    if (strlen(rtttlConfig.t100e_test_ringtone) == 0) {
+        strncpy(rtttlConfig.t100e_test_ringtone, T100E_TEST_RTTTL_RINGTONE, sizeof(rtttlConfig.t100e_test_ringtone) - 1);
+        rtttlConfig.t100e_test_ringtone[sizeof(rtttlConfig.t100e_test_ringtone) - 1] = '\0';
+        needsSave = true;
+        LOG_DEBUG("Initialized T100E_TEST ringtone");
+    }
+
+    // Save if any defaults were applied
+    if (needsSave) {
+        LOG_INFO("Saving default ringtones to flash");
+        nodeDB->saveProto(rtttlConfigFile, meshtastic_RTTTLConfig_size, &meshtastic_RTTTLConfig_msg, &rtttlConfig);
+    }
+}
+
+/**
+ * @brief Get the appropriate ringtone for a given alert type.
+ *
+ * Returns the configured ringtone for the specified alert type. If the ringtone
+ * for that type is empty or invalid, falls back to the default ringtone.
+ *
+ * @param type The alert type to get the ringtone for
+ * @return const char* Pointer to the RTTTL ringtone string
+ */
+const char *ExternalNotificationModule::getRingtoneForAlertType(AlertType type)
+{
+    const char *ringtone = nullptr;
+
+    switch (type) {
+    case AlertType::ALARM:
+        ringtone = rtttlConfig.alarm_ringtone;
+        break;
+    case AlertType::EINSATZ:
+        ringtone = rtttlConfig.einsatz_ringtone;
+        break;
+    case AlertType::LSP_ALARM:
+        ringtone = rtttlConfig.lsp_alarm_ringtone;
+        break;
+    case AlertType::T100E_ALARM:
+        ringtone = rtttlConfig.t100e_alarm_ringtone;
+        break;
+    case AlertType::T100E_EINSATZ:
+        ringtone = rtttlConfig.t100e_einsatz_ringtone;
+        break;
+    case AlertType::T100E_TEST:
+        ringtone = rtttlConfig.t100e_test_ringtone;
+        break;
+    case AlertType::T100E_ACK:
+        // ACK messages should not produce sound, but return empty string just in case
+        return "";
+    case AlertType::DEFAULT:
+    default:
+        ringtone = rtttlConfig.ringtone;
+        break;
+    }
+
+    // Fallback to default ringtone if the selected one is empty
+    if (ringtone == nullptr || strlen(ringtone) == 0) {
+        ringtone = rtttlConfig.ringtone;
+    }
+
+    // Final fallback to compiled-in default
+    if (ringtone == nullptr || strlen(ringtone) == 0) {
+        ringtone = DEFAULT_RTTTL_RINGTONE;
+    }
+
+    return ringtone;
 }

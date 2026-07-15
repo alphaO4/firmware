@@ -417,6 +417,14 @@ bool NodeDB::resetRadioConfig(bool factory_reset)
         moduleConfig.external_notification.nag_timeout = 0;
 #endif
 
+#ifdef HELTEC_MESH_NODE_T114
+    // Enforce nag_timeout for pager use: buzzer must ring long enough to alert emergency crews
+    if (moduleConfig.external_notification.nag_timeout == 0) {
+        moduleConfig.external_notification.nag_timeout = 60;
+        LOG_INFO("T114 pager: nag_timeout was 0, enforced to 60s");
+    }
+#endif
+
     return didFactoryReset;
 }
 

@@ -3,6 +3,7 @@
 #include "SinglePortModule.h"
 #include "concurrency/OSThread.h"
 #include "configuration.h"
+#include "modules/AlertRingtones.h"
 #if !defined(ARCH_PORTDUINO) && !defined(ARCH_STM32WL) && !defined(CONFIG_IDF_TARGET_ESP32C6)
 #include <NonBlockingRtttl.h>
 #else
@@ -29,6 +30,9 @@ class ExternalNotificationModule : public SinglePortModule, private concurrency:
 {
     uint32_t output = 0;
 
+    /// Current alert type being played (for ringtone selection in runOnce)
+    AlertType currentAlertType = AlertType::DEFAULT;
+
   public:
     ExternalNotificationModule();
 
@@ -44,6 +48,19 @@ class ExternalNotificationModule : public SinglePortModule, private concurrency:
 
     void handleGetRingtone(const meshtastic_MeshPacket &req, meshtastic_AdminMessage *response);
     void handleSetRingtone(const char *from_msg);
+
+    /**
+     * @brief Get the appropriate ringtone for a given alert type.
+     * Returns the configured ringtone if set, otherwise the default for that type.
+     * @param type The alert type
+     * @return const char* RTTTL ringtone string
+     */
+    const char *getRingtoneForAlertType(AlertType type);
+
+    /**
+     * @brief Initialize default ringtones for all alert types if not already set.
+     */
+    void initDefaultRingtones();
 
   protected:
     /** Called to handle a particular incoming message

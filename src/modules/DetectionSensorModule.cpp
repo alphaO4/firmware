@@ -11,6 +11,23 @@ DetectionSensorModule *detectionSensorModule;
 #define GPIO_POLLING_INTERVAL 100
 #define DELAYED_INTERVAL 1000
 
+static constexpr ChannelIndex kDetectionChannelIndex = 8;
+
+static bool canSendOnDetectionChannel()
+{
+    if (kDetectionChannelIndex >= channels.getNumChannels()) {
+        LOG_ERROR("Detection Sensor Module: Channel %u unavailable", kDetectionChannelIndex);
+        return false;
+    }
+
+    if (channels.isDefaultChannel(kDetectionChannelIndex)) {
+        LOG_ERROR("Message not allow on default channel index %u", kDetectionChannelIndex);
+        return false;
+    }
+
+    return true;
+}
+
 typedef enum {
     DetectionSensorVerdictDetected,
     DetectionSensorVerdictSendState,
@@ -119,9 +136,14 @@ int32_t DetectionSensorModule::runOnce()
 void DetectionSensorModule::sendDetectionMessage()
 {
     LOG_DEBUG("Detected event observed. Send message");
+    if (!canSendOnDetectionChannel()) {
+        return;
+    }
+
     char *message = new char[40];
     sprintf(message, "%s detected", moduleConfig.detection_sensor.name);
     meshtastic_MeshPacket *p = allocDataPacket();
+    p->channel = kDetectionChannelIndex;
     p->want_ack = false;
     p->decoded.payload.size = strlen(message);
     memcpy(p->decoded.payload.bytes, message, p->decoded.payload.size);
@@ -131,28 +153,29 @@ void DetectionSensorModule::sendDetectionMessage()
         p->decoded.payload.size++;
     }
     lastSentToMesh = millis();
-    if (!channels.isDefaultChannel(0)) {
-        LOG_INFO("Send message id=%d, dest=%x, msg=%.*s", p->id, p->to, p->decoded.payload.size, p->decoded.payload.bytes);
-        service->sendToMesh(p);
-    } else
-        LOG_ERROR("Message not allow on Public channel");
+    LOG_INFO("Send message id=%d, dest=%x, channel=%u, msg=%.*s", p->id, p->to, p->channel, p->decoded.payload.size,
+             p->decoded.payload.bytes);
+    service->sendToMesh(p);
     delete[] message;
 }
 
 void DetectionSensorModule::sendCurrentStateMessage(bool state)
 {
+    if (!canSendOnDetectionChannel()) {
+        return;
+    }
+
     char *message = new char[40];
     sprintf(message, "%s state: %i", moduleConfig.detection_sensor.name, state);
     meshtastic_MeshPacket *p = allocDataPacket();
+    p->channel = kDetectionChannelIndex;
     p->want_ack = false;
     p->decoded.payload.size = strlen(message);
     memcpy(p->decoded.payload.bytes, message, p->decoded.payload.size);
     lastSentToMesh = millis();
-    if (!channels.isDefaultChannel(0)) {
-        LOG_INFO("Send message id=%d, dest=%x, msg=%.*s", p->id, p->to, p->decoded.payload.size, p->decoded.payload.bytes);
-        service->sendToMesh(p);
-    } else
-        LOG_ERROR("Message not allow on Public channel");
+    LOG_INFO("Send message id=%d, dest=%x, channel=%u, msg=%.*s", p->id, p->to, p->channel, p->decoded.payload.size,
+             p->decoded.payload.bytes);
+    service->sendToMesh(p);
     delete[] message;
 }
 

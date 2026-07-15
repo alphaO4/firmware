@@ -1,52 +1,28 @@
-# Copilot Instructions for Meshtastic Firmware
+# Copilot Instructions for Meshtastic Firmware (JF-Pieper)
 
-## Project Overview
-- This repository contains the device firmware for the Meshtastic project, supporting multiple hardware platforms (ESP32, nRF52, STM32, RP2040, etc.).
-- Major directories:
-  - `src/` — Main firmware source code (C++/Arduino style)
-  - `arch/` — Platform-specific code for each supported MCU family
-  - `boards/` — Board configuration files (JSON)
-  - `protobufs/` — Protobuf message definitions for device/app communication
-  - `bin/` — Build scripts, utilities, and helper tools (Python, shell, batch)
-  - `extra_scripts/` — PlatformIO environment modification scripts
-  - `meshtestic/` — End-to-end test suite (Node.js, Python, PlatformIO)
+## Orientation
+- Fork of meshtastic/firmware focused on Heltec Mesh Node T114 (`HELTEC_MESH_NODE_T114` guard); keep upstream merges intact via workflows under `.github/workflows`.
+- PlatformIO project with shared `platformio.ini` that pulls in `arch/*/*.ini` and `variants/*/platformio.ini`; default env `tbeam`, T114 env extends `nrf52840_base`.
+- Core directories: `src/` (firmware), `arch/` (MCU glue), `variants/` (board pinouts + build flags), `boards/*.json` (board meta), `mesh/` (routing/services), `modules/` (feature threads).
 
-## Build & Test Workflows
-- **Build firmware:** Use PlatformIO (`pio run`) or VS Code PlatformIO tasks. Example: `pio run --environment heltec-mesh-node-t114`.
-- **Full clean:** `pio run --target fullclean --environment <env>`
-- **End-to-end tests:**
-  - Install Node.js, pnpm, Python (with pip), and PlatformIO.
-  - Connect supported devices via USB.
-  - In `meshtestic/`, run `pnpm i` then `pnpm run test`.
-- **Protobufs:** Regenerate with `bin/regen-protos.sh` (Linux/macOS) or `bin/regen-protos.bat` (Windows).
+## Architecture & Patterns
+- `src/main.cpp` boots hardware, runs detection helpers in `detect/`, and calls `setupModules()` (`src/modules/Modules.cpp`) to spawn `concurrency::OSThread`-derived modules with a `runOnce()` loop.
+- Mesh messaging flows through `MeshService` → `Router`/`MeshRadio`; packets are `meshtastic_MeshPacket` protobufs generated in `src/mesh/generated`.
+- Configuration lives in nanopb structs (`config`, `moduleConfig`); default timings come from `mesh/Default.*` helpers like `Default::getConfiguredOrDefaultMs`.
+- Board/UI special cases must stay under the Heltec macro; e.g. `graphics/Screen.cpp`, `platform/nrf52/main-nrf52.cpp`, and module code that checks the `HELTEC_MESH_NODE_T114` guard.
 
-## Key Patterns & Conventions
-- **Board Variants:**
-  - Board-specific code lives in `variants/` and `src/platform/extra_variants/`.
-  - Use `lateInitVariant()` for board-specific initialization (see `src/platform/extra_variants/README.md`).
-  - Board macros: Define `_VARIANT_boardname` in `variant.h` for conditional compilation.
-- **Protobuf Communication:**
-  - All device/app communication uses protobufs defined in `protobufs/`.
-  - Regenerate code after editing `.proto` files.
-- **Scripts:**
-  - Use scripts in `bin/` for build, versioning, and device management tasks.
-  - Many scripts have both `.sh` (Unix) and `.bat` (Windows) versions.
-- **Testing:**
-  - End-to-end tests in `meshtestic/` simulate real device usage and require hardware.
-  - See `meshtestic/README.md` for setup and execution details.
+## Build & Flash Workflow
+- Primary build: `pio run --environment heltec-mesh-node-t114`; artifacts (`firmware.uf2`, `.hex`, `.elf`) land in `.pio/build/heltec-mesh-node-t114/`.
+- Clean rebuild: `pio run --target fullclean --environment heltec-mesh-node-t114`; use `pio device monitor -b 115200` for logs.
+- Post-build UF2 packaging is driven by `bin/platformio-custom.py`, which also injects version info from `version.properties` and user flags from `userPrefs.jsonc`.
+- CI mirrors these steps (`.github/workflows/auto-build-t114.yml`); keep command compatibility when modifying scripts.
 
-## Integration & External Dependencies
-- **PlatformIO** is the primary build system (see `platformio.ini`).
-- **Protobufs** are shared with apps and tools; keep definitions in sync.
-- **Node.js** and **Python** are required for test automation and some build scripts.
+## Testing & Validation
+- Hardware E2E tests live in `meshtestic/`; run `pnpm i` then `pnpm run test` with devices connected.
+- Static analysis via `pio check --environment heltec-mesh-node-t114` (configured for `cppcheck`).
+- Protobuf changes require regenerating generated sources with `bin/regen-protos.sh` (or `.bat` on Windows) followed by rebuilding.
 
-## Examples
-- Add a new board: Create a JSON in `boards/`, add variant code in `variants/` and/or `src/platform/extra_variants/`.
-- Add a new protobuf message: Edit `.proto` in `protobufs/`, then run the regen script.
-- Run all tests: `pnpm run test` in `meshtestic/` (after setup).
-
-## References
-- See `README.md` (root), `protobufs/README.md`, `meshtestic/README.md`, and `src/platform/extra_variants/README.md` for more details.
-
----
-If any section is unclear or missing important project-specific knowledge, please provide feedback for further refinement.
+## Extending the Firmware
+- Add board features by editing `boards/<board>.json`, `variants/<board>/` sources, and optional `src/platform/extra_variants/` hooks (`lateInitVariant()`).
+- Shared utilities: `Throttle::isWithinTimespanMs` for rate limiting, `LOG_*` macros for diagnostics, and `Default::*` for adapting broadcast cadences to network congestion.
+- When touching display or power logic, review Heltec-specific constraints in `README.md` and `CHANGES.md` to avoid reintroducing removed screens or GPS assumptions.
