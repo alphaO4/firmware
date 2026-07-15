@@ -1,10 +1,10 @@
 #include "BMX160Sensor.h"
 
-#if !defined(ARCH_PORTDUINO) && !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_I2C
+#if !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_I2C
 
 BMX160Sensor::BMX160Sensor(ScanI2C::FoundDevice foundDevice) : MotionSensor::MotionSensor(foundDevice) {}
 
-#ifdef RAK_4631
+#if !defined(RAK2560) && __has_include(<Rak_BMX160.h>)
 #if !defined(MESHTASTIC_EXCLUDE_SCREEN)
 
 // screen is defined in main.cpp
@@ -16,6 +16,7 @@ bool BMX160Sensor::init()
     if (sensor.begin()) {
         // set output data rate
         sensor.ODR_Config(BMX160_ACCEL_ODR_100HZ, BMX160_GYRO_ODR_100HZ);
+        loadMagnetometerCalibration(compassCalibrationFileName, highestX, lowestX, highestY, lowestY, highestZ, lowestZ);
         LOG_DEBUG("BMX160 init ok");
         return true;
     }
@@ -25,37 +26,19 @@ bool BMX160Sensor::init()
 
 int32_t BMX160Sensor::runOnce()
 {
+#if !defined(MESHTASTIC_EXCLUDE_SCREEN)
     sBmx160SensorData_t magAccel;
     sBmx160SensorData_t gAccel;
 
     /* Get a new sensor event */
     sensor.getAllData(&magAccel, NULL, &gAccel);
 
-#if !defined(MESHTASTIC_EXCLUDE_SCREEN)
-    // experimental calibrate routine. Limited to between 10 and 30 seconds after boot
-    if (millis() > 12 * 1000 && millis() < 30 * 1000) {
-        if (!showingScreen) {
-            showingScreen = true;
-            screen->startAlert((FrameCallback)drawFrameCalibration);
-        }
-        if (magAccel.x > highestX)
-            highestX = magAccel.x;
-        if (magAccel.x < lowestX)
-            lowestX = magAccel.x;
-        if (magAccel.y > highestY)
-            highestY = magAccel.y;
-        if (magAccel.y < lowestY)
-            lowestY = magAccel.y;
-        if (magAccel.z > highestZ)
-            highestZ = magAccel.z;
-        if (magAccel.z < lowestZ)
-            lowestZ = magAccel.z;
-    } else if (showingScreen && millis() >= 30 * 1000) {
-        showingScreen = false;
-        screen->endAlert();
+    if (doCalibration) {
+        beginCalibrationDisplay(showingScreen);
+        updateCalibrationExtrema(magAccel.x, magAccel.y, magAccel.z, highestX, lowestX, highestY, lowestY, highestZ, lowestZ);
+        finishCalibrationIfExpired(showingScreen, compassCalibrationFileName, highestX, lowestX, highestY, lowestY, highestZ,
+                                   lowestZ);
     }
-
-    int highestRealX = highestX - (highestX + lowestX) / 2;
 
     magAccel.x -= (highestX + lowestX) / 2;
     magAccel.y -= (highestY + lowestY) / 2;
@@ -76,27 +59,24 @@ int32_t BMX160Sensor::runOnce()
 
     float heading = FusionCompassCalculateHeading(FusionConventionNed, ga, ma);
 
-    switch (config.display.compass_orientation) {
-    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_0_INVERTED:
-    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_0:
-        break;
-    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_90:
-    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_90_INVERTED:
-        heading += 90;
-        break;
-    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_180:
-    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_180_INVERTED:
-        heading += 180;
-        break;
-    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_270:
-    case meshtastic_Config_DisplayConfig_CompassOrientation_DEGREES_270_INVERTED:
-        heading += 270;
-        break;
-    }
-    screen->setHeading(heading);
+    heading = applyCompassOrientation(heading);
+    if (screen)
+        screen->setHeading(heading);
 #endif
 
     return MOTION_SENSOR_CHECK_INTERVAL_MS;
+}
+
+void BMX160Sensor::calibrate(uint16_t forSeconds)
+{
+#if !defined(MESHTASTIC_EXCLUDE_SCREEN)
+    sBmx160SensorData_t magAccel;
+    sBmx160SensorData_t gAccel;
+    LOG_DEBUG("BMX160 calibration started for %is", forSeconds);
+    sensor.getAllData(&magAccel, NULL, &gAccel);
+    seedCalibrationExtrema(magAccel.x, magAccel.y, magAccel.z, highestX, lowestX, highestY, lowestY, highestZ, lowestZ);
+    startCalibrationWindow(forSeconds);
+#endif
 }
 
 #endif

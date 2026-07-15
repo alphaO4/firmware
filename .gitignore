@@ -12,6 +12,9 @@ web.tar
 *.code-workspace
 
 .idea
+.platformio
+.local
+.cache
 
 .DS_Store
 Thumbs.db
@@ -30,9 +33,27 @@ __pycache__
 *~
 
 venv/
+.venv/
 release/
 .vscode/extensions.json
 /compile_commands.json
 src/mesh/raspihttp/certificate.pem
 src/mesh/raspihttp/private_key.pem
 .github/Tech-Specs.md
+
+# Ignore logo (set at build time with platformio-custom.py)
+data/boot/logo.*
+
+# pioarduino platform
+managed_components/*
+arduino-lib-builder*
+dependencies.lock
+idf_component.yml
+CMakeLists.txt
+/sdkconfig.*
+.dummy/*
+
+# PYTHONPATH used by the Nix shell
+.python3
+.claude/scheduled_tasks.lock
+userPrefs.jsonc.mcp-session-bak
