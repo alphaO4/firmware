@@ -10,6 +10,8 @@
 # .github/workflows/auto-merge-master.yml
 src/modules/AlertRingtones.h merge=ours
 src/mesh/generated/meshtastic/rtttl.pb.h merge=ours
+src/graphics/draw/PagerMessageRenderer.h merge=ours
+src/graphics/draw/PagerMessageRenderer.cpp merge=ours
 variants/nrf52840/heltec_mesh_node_t114/variant.h merge=ours
 README.md merge=ours
 .github/copilot-instructions.md merge=ours

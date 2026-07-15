@@ -55,6 +55,8 @@ jobs:
         # entries in .gitattributes; listed again here as a safety net.
         OURS="src/modules/AlertRingtones.h
         src/mesh/generated/meshtastic/rtttl.pb.h
+        src/graphics/draw/PagerMessageRenderer.h
+        src/graphics/draw/PagerMessageRenderer.cpp
         variants/nrf52840/heltec_mesh_node_t114/variant.h
         README.md
         .github/copilot-instructions.md
@@ -105,6 +107,8 @@ jobs:
         }
         check src/graphics/Screen.cpp "FF Kladow pager: restrict UI"
         check src/graphics/Screen.cpp "HELTEC_MESH_NODE_T114"
+        check src/graphics/Screen.cpp "FF Kladow pager: single-message frame"
+        check src/graphics/draw/PagerMessageRenderer.cpp "FF Kladow pager: single-message frame"
         check src/modules/ExternalNotificationModule.cpp "getRingtoneForAlertType"
         check src/modules/ExternalNotificationModule.h "AlertRingtones.h"
         check src/modules/AlertRingtones.h "detectAlertType"
@@ -157,6 +161,7 @@ jobs:
           **JF-Pieper modifications to preserve:**
           - Prefix-based alert ringtones (ExternalNotificationModule.cpp/.h + AlertRingtones.h; silent T100E:ACK)
           - HELTEC_MESH_NODE_T114 screen restriction via hiddenFrames in Screen.cpp setFrames()
+          - Pager single-message frame (src/graphics/draw/PagerMessageRenderer.{h,cpp} + frame swap in Screen.cpp setFrames())
           - NodeDB.cpp: 60s nag_timeout enforcement for T114 pager
           - DetectionSensorModule.cpp: channel index 8 pinning
           - variants/nrf52840/heltec_mesh_node_t114/variant.h: buzzer on pin 44 (P1.12)
