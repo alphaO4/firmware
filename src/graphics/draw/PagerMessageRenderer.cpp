@@ -14,6 +14,8 @@
 #include "graphics/ScreenFonts.h"
 #include "graphics/SharedUIDisplay.h"
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
