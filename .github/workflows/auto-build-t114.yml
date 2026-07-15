@@ -70,21 +70,21 @@ jobs:
           # Create release directory
           mkdir -p release
           
-          # Copy build artifacts to release directory
-          if [ -f ".pio/build/heltec-mesh-node-t114/firmware.hex" ]; then
-            cp .pio/build/heltec-mesh-node-t114/firmware.hex release/firmware-heltec-mesh-node-t114-${{ github.sha }}.hex
-            echo "✅ Created firmware.hex"
-          fi
-          
-          if [ -f ".pio/build/heltec-mesh-node-t114/firmware.uf2" ]; then
-            cp .pio/build/heltec-mesh-node-t114/firmware.uf2 release/firmware-heltec-mesh-node-t114-${{ github.sha }}.uf2
-            echo "✅ Created firmware.uf2"
-          fi
-          
-          if [ -f ".pio/build/heltec-mesh-node-t114/firmware.elf" ]; then
-            cp .pio/build/heltec-mesh-node-t114/firmware.elf release/firmware-heltec-mesh-node-t114-${{ github.sha }}.elf
-            echo "✅ Created firmware.elf"
-          fi
+          # Copy build artifacts to release directory.
+          # Since 2.7.x the build system names artifacts firmware-<env>-<version>.<ext>,
+          # so match by glob instead of the old fixed firmware.<ext> names.
+          for ext in hex uf2 elf; do
+            src=$(ls .pio/build/heltec-mesh-node-t114/firmware-heltec-mesh-node-t114-*.$ext 2>/dev/null | head -n1)
+            if [ -z "$src" ] && [ -f ".pio/build/heltec-mesh-node-t114/firmware.$ext" ]; then
+              src=".pio/build/heltec-mesh-node-t114/firmware.$ext"
+            fi
+            if [ -n "$src" ]; then
+              cp "$src" "release/firmware-heltec-mesh-node-t114-${{ github.sha }}.$ext"
+              echo "✅ Created firmware.$ext from $src"
+            else
+              echo "⚠️ No .$ext artifact found"
+            fi
+          done
           
           # Create zip package
           cd release
