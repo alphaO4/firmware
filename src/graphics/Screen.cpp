@@ -38,6 +38,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "draw/MessageRenderer.h"
 #include "draw/NodeListRenderer.h"
 #include "draw/NotificationRenderer.h"
+#ifdef HELTEC_MESH_NODE_T114
+#include "draw/PagerMessageRenderer.h"
+#endif
 #include "draw/UIRenderer.h"
 #include "modules/CannedMessageModule.h"
 
@@ -1191,7 +1194,12 @@ void Screen::setFrames(FrameFocus focus)
     }
 
     fsi.positions.textMessage = numframes;
+#ifdef HELTEC_MESH_NODE_T114
+    // FF Kladow pager: single-message frame (newest received alert, full screen)
+    normalFrames[numframes++] = graphics::PagerMessageRenderer::drawPagerMessageFrame;
+#else
     normalFrames[numframes++] = graphics::MessageRenderer::drawTextMessageFrame;
+#endif
     indicatorIcons.push_back(icon_mail);
 
 #ifndef USE_EINK
