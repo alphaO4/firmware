@@ -609,7 +609,7 @@ jobs:
           - .github/workflows/auto-build-t114.yml (this workflow)
           - src/graphics/Screen.cpp (JF-Pieper modifications)
           - platformio.ini (build configuration)
-          - variants/heltec_mesh_node_t114/ (board variant files)
+          - variants/nrf52840/heltec_mesh_node_t114/ (board variant files)
           - Any other files mentioned in the error logs
           
           Please create a pull request with the fix targeting the JF-Pieper-Modifications branch.
